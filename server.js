@@ -10,6 +10,7 @@ import nodemailer from 'nodemailer';
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
+import os from 'os';
 import { getDb } from './database.js';
 
 // Simple in-memory cache for fast, responsive UI
@@ -40,8 +41,8 @@ app.use(cors());
 app.use(express.json({ limit: '5mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-// File-upload temp dir
-const uploadDir = path.join(__dirname, 'uploads');
+// File-upload temp dir for Vercel (read-only filesystem workaround)
+const uploadDir = path.join(os.tmpdir(), 'uploads');
 await fs.mkdir(uploadDir, { recursive: true });
 
 const upload = multer({
@@ -185,12 +186,7 @@ app.post('/api/analyze', upload.single('file'), async (req, res) => {
       });
     }
 
-    // 1. Check Cache FIRST (Makes UI lightning fast for repeat documents)
-    const textHash = crypto.createHash('sha256').update(contractText).digest('hex');
-    if (analysisCache.has(textHash)) {
-      console.log(`⚡ Returning cached analysis for hash: ${textHash.substring(0, 8)}...`);
-      return res.json(analysisCache.get(textHash));
-    }
+    // Caching removed to force real-time analysis on every request
 
     // Truncate extremely long documents to ~100k chars to stay within token limits
     if (contractText.length > 100_000) {
@@ -271,57 +267,13 @@ app.post('/api/analyze', upload.single('file'), async (req, res) => {
             delay *= 2; // Exponential backoff
             retries--;
           } else {
-            console.warn('[API Failed] Exhausted retries or hard failure. Falling back to Mock Data.');
-            apiFailed = true;
-            break;
+            console.error('[API Failed] Exhausted retries or hard failure. Error:', apiErr);
+            throw apiErr;
           }
         }
       }
       
-      if (apiFailed) {
-        // Fallback to the original realistic mock response to keep the UI perfectly functional for testing
-        var mockResponseText = JSON.stringify({
-          overallRiskScore: "High",
-          totalClausesAnalyzed: 8,
-          summary: "This is a simulated analysis (Demo Mode). Your contract contains several standard clauses, but we've highlighted a few that pose a high risk regarding liability and automatic renewals.",
-          clauses: [
-            {
-              title: "Limitation of Liability",
-              severity: "critical",
-              category: "liability",
-              originalText: "In no event shall the company be liable for any direct, indirect, incidental, or consequential damages.",
-              explanation: "This clause completely protects the company from being sued, even if their product causes you significant financial loss or damage.",
-              recommendation: "If you are using this for business-critical operations, you should negotiate a cap on liability rather than a complete waiver."
-            },
-            {
-              title: "Unilateral Amendment",
-              severity: "high",
-              category: "amendments",
-              originalText: "We reserve the right to modify these terms at any time without prior written notice.",
-              explanation: "The company can change the rules of your agreement at any time, and you are bound by them even if you aren't notified.",
-              recommendation: "Request that material changes require at least 30 days written notice and give you the right to terminate the contract."
-            },
-            {
-              title: "Automatic Renewal",
-              severity: "medium",
-              category: "billing",
-              originalText: "This agreement will automatically renew for successive one-year terms unless canceled 90 days prior to renewal.",
-              explanation: "They will automatically charge you every year, and they require you to cancel 3 months in advance. Worse, they can charge you the 'current market rate' instead of your original price.",
-              recommendation: "Set a calendar reminder for 100 days before your renewal date so you remember to cancel in time, or use a virtual credit card with a strict limit."
-            },
-            {
-              title: "Broad Data Sharing",
-              severity: "medium",
-              category: "data-sharing",
-              originalText: "We may share your personal data with third-party partners for marketing purposes.",
-              explanation: "The company is allowed to sell or share your personal information to advertisers and marketers without asking you again.",
-              recommendation: "Check the privacy settings in your account immediately after signing up to see if you can opt-out of data sharing."
-            }
-          ]
-        });
-      } else {
-        var mockResponseText = response.text;
-      }
+      var mockResponseText = response.text;
     }
 
     // 4. Parse, sort and cache
@@ -331,8 +283,7 @@ app.post('/api/analyze', upload.single('file'), async (req, res) => {
     const severityOrder = { critical: 0, high: 1, medium: 2, low: 3 };
     result.clauses.sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity]);
 
-    // Save to cache before returning
-    analysisCache.set(textHash, result);
+    // Cache writing removed
 
     return res.json(result);
   } catch (err) {
@@ -350,7 +301,7 @@ app.post('/api/analyze', upload.single('file'), async (req, res) => {
       return res.status(429).json({ error: 'API rate limit reached. Please try again in a moment.' });
     }
 
-    return res.status(500).json({ error: 'Analysis failed. Please try again.' });
+    return res.status(500).json({ error: 'Analysis failed.', details: err.message });
   }
 });
 
@@ -488,20 +439,27 @@ app.get('*', (_req, res) => {
 });
 
 /* ------------------------------------------------------------------ */
-/*  Start                                                              */
+/*  Start / Export                                                     */
 /* ------------------------------------------------------------------ */
-const startServer = async () => {
-  // Initialize Database before starting server
-  try {
-    await getDb();
-    console.log('📦 Database initialized successfully.');
-  } catch (err) {
-    console.error('❌ Failed to initialize database:', err);
-  }
+if (process.env.VERCEL) {
+  // Initialize DB in the background
+  getDb().catch(err => console.error('❌ Failed to initialize database:', err));
+} else {
+  const startServer = async () => {
+    // Initialize Database before starting server
+    try {
+      await getDb();
+      console.log('📦 Database initialized successfully.');
+    } catch (err) {
+      console.error('❌ Failed to initialize database:', err);
+    }
 
-  app.listen(PORT, () => {
-    console.log(`\n🛡️  Contract Risk Highlighter running at http://localhost:${PORT}\n`);
-  });
-};
+    app.listen(PORT, () => {
+      console.log(`\n🛡️  Contract Risk Highlighter running at http://localhost:${PORT}\n`);
+    });
+  };
 
-startServer();
+  startServer();
+}
+
+export default app;

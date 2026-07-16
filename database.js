@@ -1,13 +1,10 @@
 import sqlite3 from 'sqlite3';
 import { open } from 'sqlite';
 import path from 'path';
-import { fileURLToPath } from 'url';
+import os from 'os';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// Define DB path
-const dbPath = path.join(__dirname, 'database.sqlite');
+// Define DB path in /tmp for Vercel Serverless to prevent read-only crash
+const dbPath = path.join(os.tmpdir(), 'database.sqlite');
 
 let dbInstance = null;
 
