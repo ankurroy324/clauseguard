@@ -427,16 +427,8 @@ See **LICENSE** for more information.
 # 👩‍💻 Author
 
 **Isha Chakraborty**
-
+**Ankur Roy**
 B.Tech Information Technology | AI & ML Enthusiast | Full Stack Developer
-
-📧 Email: your-email@example.com
-
-💼 LinkedIn: https://linkedin.com/in/yourprofile
-
-🌐 Portfolio: https://yourportfolio.com
-
-🐙 GitHub: https://github.com/yourusername
 
 ---
 
