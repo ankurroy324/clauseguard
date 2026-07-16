@@ -3,6 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import multer from 'multer';
 import fs from 'fs/promises';
+import fsSync from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI } from '@google/genai';
@@ -27,8 +28,7 @@ const PORT = process.env.PORT || 3000;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
 if (!GEMINI_API_KEY) {
-  console.error('❌  GEMINI_API_KEY is not set. Copy .env.example → .env and add your key.');
-  process.exit(1);
+  console.warn('❌  GEMINI_API_KEY is not set. API calls will fail.');
 }
 
 const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
@@ -43,7 +43,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // File-upload temp dir for Vercel (read-only filesystem workaround)
 const uploadDir = path.join(os.tmpdir(), 'uploads');
-await fs.mkdir(uploadDir, { recursive: true });
+fsSync.mkdirSync(uploadDir, { recursive: true });
 
 const upload = multer({
   dest: uploadDir,
@@ -183,6 +183,12 @@ app.post('/api/analyze', upload.single('file'), async (req, res) => {
     if (!contractText || contractText.trim().length < 50) {
       return res.status(400).json({
         error: 'Please provide contract text (minimum 50 characters) or upload a file.',
+      });
+    }
+
+    if (!GEMINI_API_KEY) {
+      return res.status(500).json({
+        error: 'Server configuration error: GEMINI_API_KEY is not set in the Vercel environment variables. Please add it in the Vercel dashboard.',
       });
     }
 
